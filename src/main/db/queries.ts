@@ -15,7 +15,7 @@ import { DEFAULT_TOP_K, MIN_SIMILARITY_SCORE } from '../../shared/constants';
 
 export function getDocumentByPath(path: string): Document | null {
   const db = getDatabase();
-  return db.prepare('SELECT * FROM documents WHERE path = ?').get(path) as Document | null;
+  return (db.prepare('SELECT * FROM documents WHERE path = ?').get(path) as Document | undefined) || null;
 }
 
 export function getAllDocuments(): Document[] {

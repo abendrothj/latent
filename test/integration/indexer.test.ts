@@ -2,19 +2,35 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
 import Database from 'better-sqlite3';
+import * as schema from '../../src/main/db/schema';
 import { Indexer } from '../../src/main/indexer';
-import { TEST_VAULT_DIR, TEST_DB_PATH } from '../setup';
+import { TEST_VAULT_DIR, TEST_DB_PATH, TEST_DIR } from '../setup';
+import os from 'os';
+import { waitForCondition } from '../utils/poll';
 import { mockNotes, mockEmbedding } from '../fixtures/mockData';
 
 describe('Indexer Integration', () => {
   let indexer: Indexer;
   let db: Database.Database;
   let progressEvents: any[] = [];
+  let vaultPath: string = '';
+
 
   beforeEach(async () => {
-    // Create test database
-    db = new Database(TEST_DB_PATH);
+    // Create test database (unique per test to avoid contention)
+    const tmpDbPath = path.join(os.tmpdir(), `latent-integration-db-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+
+    try {
+      await fs.unlink(tmpDbPath);
+    } catch (e: any) {
+      if (e.code !== 'ENOENT') {
+        // ignore other errors here for test robustness
+      }
+    }
+
+    db = new Database(tmpDbPath);
     db.pragma('foreign_keys = ON');
+    db.pragma('journal_mode = WAL');
 
     // Create schema
     db.exec(`
@@ -52,13 +68,16 @@ describe('Indexer Integration', () => {
     `);
 
     // Mock database functions
-    const queries = require('../../src/main/db/queries');
-    queries.getDatabase = () => db;
+    vi.spyOn(schema, 'getDatabase').mockReturnValue(db);
 
     progressEvents = [];
 
+    // Create a unique temporary vault for this test
+    vaultPath = path.join(os.tmpdir(), `latent-vault-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await fs.mkdir(vaultPath, { recursive: true });
+
     // Create indexer
-    indexer = new Indexer(TEST_VAULT_DIR, {
+    indexer = new Indexer(vaultPath, {
       chunkSize: 500,
       chunkOverlap: 50,
       onProgress: (progress) => progressEvents.push(progress),
@@ -79,26 +98,41 @@ describe('Indexer Integration', () => {
     indexer.setProvider(mockProvider as any);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (indexer) {
       indexer.stop();
     }
     if (db) {
       db.close();
     }
+
+    // Clean up temporary vault
+    try {
+      if (vaultPath) {
+        await fs.rm(vaultPath, { recursive: true, force: true });
+      }
+    } catch (e) {
+      // ignore cleanup errors
+    }
   });
 
   describe('File Indexing', () => {
     it('should index a single file', async () => {
-      // Create test file
-      const filePath = path.join(TEST_VAULT_DIR, 'test.md');
+      // Create test file BEFORE starting indexer
+      const filePath = path.join(vaultPath, 'test.md');
       await fs.writeFile(filePath, mockNotes.simple);
+
+      // Wait a bit for file system to settle
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       // Start indexer
       await indexer.start();
 
-      // Wait for indexing to complete
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait for indexing to complete (poll DB until document exists)
+      await waitForCondition(async () => {
+        const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
+        return !!doc;
+      }, { timeout: 10000, interval: 100 });
 
       // Check database
       const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
@@ -112,25 +146,38 @@ describe('Indexer Integration', () => {
     });
 
     it('should index multiple files', async () => {
-      // Create multiple test files
-      await fs.writeFile(path.join(TEST_VAULT_DIR, 'file1.md'), mockNotes.simple);
-      await fs.writeFile(path.join(TEST_VAULT_DIR, 'file2.md'), mockNotes.withFrontmatter);
-      await fs.writeFile(path.join(TEST_VAULT_DIR, 'file3.md'), mockNotes.withWikilinks);
+      // Create multiple test files BEFORE starting indexer
+      await fs.writeFile(path.join(vaultPath, 'file1.md'), mockNotes.simple);
+      await fs.writeFile(path.join(vaultPath, 'file2.md'), mockNotes.withFrontmatter);
+      await fs.writeFile(path.join(vaultPath, 'file3.md'), mockNotes.withWikilinks);
+
+      // Wait a bit for file system to settle
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       await indexer.start();
 
-      // Wait for indexing
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      // Wait for indexing (poll DB for all documents)
+      await waitForCondition(async () => {
+        const docs = db.prepare('SELECT * FROM documents').all();
+        return docs.length === 3;
+      }, { timeout: 15000, interval: 100 });
 
       const docs = db.prepare('SELECT * FROM documents').all();
       expect(docs.length).toBe(3);
     });
 
     it('should extract and store links', async () => {
-      await fs.writeFile(path.join(TEST_VAULT_DIR, 'test.md'), mockNotes.withWikilinks);
+      await fs.writeFile(path.join(vaultPath, 'test.md'), mockNotes.withWikilinks);
+
+      // Wait a bit for file system to settle
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       await indexer.start();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait for links to be present in DB
+      await waitForCondition(async () => {
+        const links = db.prepare('SELECT * FROM links WHERE source_path = ?').all('test.md');
+        return links.length > 0;
+      }, { timeout: 10000, interval: 100 });
 
       const links = db.prepare('SELECT * FROM links WHERE source_path = ?').all('test.md');
 
@@ -139,14 +186,21 @@ describe('Indexer Integration', () => {
     });
 
     it('should skip unchanged files', async () => {
-      const filePath = path.join(TEST_VAULT_DIR, 'test.md');
+      const filePath = path.join(vaultPath, 'test.md');
       await fs.writeFile(filePath, mockNotes.simple);
 
+      // Wait a bit for file system to settle
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
       await indexer.start();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait until initial indexing completes for test.md
+      await waitForCondition(async () => {
+        const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
+        return !!doc;
+      }, { timeout: 10000, interval: 100 });
 
       // Get initial indexed timestamp
-      const doc1 = db.prepare('SELECT last_indexed_at FROM documents WHERE path = ?').get('test.md');
+      db.prepare('SELECT last_indexed_at FROM documents WHERE path = ?').get('test.md');
 
       // Re-index same file
       await indexer.reindexFile('test.md');
@@ -160,33 +214,47 @@ describe('Indexer Integration', () => {
     });
 
     it('should handle file deletion', async () => {
-      const filePath = path.join(TEST_VAULT_DIR, 'test.md');
+      const filePath = path.join(vaultPath, 'test.md');
       await fs.writeFile(filePath, mockNotes.simple);
 
+      // Wait a bit for file system to settle
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
       await indexer.start();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait until the document is indexed
+      await waitForCondition(async () => {
+        const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
+        return !!doc;
+      }, { timeout: 10000, interval: 100 });
 
       // Verify file was indexed
       let doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
       expect(doc).toBeTruthy();
 
-      // Delete file
+      // Delete file and wait for watcher to detect
       await fs.unlink(filePath);
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await waitForCondition(async () => {
+        const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
+        return !doc;
+      }, { timeout: 15000, interval: 200 });
 
       // File should be removed from database
       doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
       expect(doc).toBeFalsy();
-    });
+    }, 15000);
   });
 
   describe('Progress Reporting', () => {
     it('should report indexing progress', async () => {
-      await fs.writeFile(path.join(TEST_VAULT_DIR, 'file1.md'), mockNotes.simple);
-      await fs.writeFile(path.join(TEST_VAULT_DIR, 'file2.md'), mockNotes.withFrontmatter);
+      await fs.writeFile(path.join(vaultPath, 'file1.md'), mockNotes.simple);
+      await fs.writeFile(path.join(vaultPath, 'file2.md'), mockNotes.withFrontmatter);
+
+      // Wait a bit for file system to settle
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       await indexer.start();
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      // Wait for any progress events to be emitted
+      await waitForCondition(() => progressEvents.length > 0, { timeout: 10000, interval: 100 });
 
       expect(progressEvents.length).toBeGreaterThan(0);
 
@@ -201,15 +269,22 @@ describe('Indexer Integration', () => {
 
     it('should report errors without crashing', async () => {
       // Create a file with invalid UTF-8 to trigger error
-      const filePath = path.join(TEST_VAULT_DIR, 'invalid.md');
+      const filePath = path.join(vaultPath, 'invalid.md');
       await fs.writeFile(filePath, Buffer.from([0xff, 0xfe, 0xfd]));
 
+      // Wait a bit for file system to settle
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
       await indexer.start();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait for the invalid file to be processed (if it was indexed)
+      await waitForCondition(async () => {
+        const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('invalid.md');
+        return !!doc;
+      }, { timeout: 10000, interval: 100 });
 
       // Indexer should still be running (not crashed)
       // Error events might be logged
-      const errorEvents = progressEvents.filter((e) => e.phase === 'error');
+      progressEvents.filter((e) => e.phase === 'error');
 
       // Either error was handled or file was skipped
       expect(true).toBe(true);
@@ -219,45 +294,70 @@ describe('Indexer Integration', () => {
   describe('Real-time Updates', () => {
     it('should detect new files', async () => {
       await indexer.start();
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Small settle to ensure watcher is ready
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
       // Create file after indexer started
-      await fs.writeFile(path.join(TEST_VAULT_DIR, 'new-file.md'), mockNotes.simple);
+      await fs.writeFile(path.join(vaultPath, 'new-file.md'), mockNotes.simple);
 
-      // Wait for file watcher to detect
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      // Wait for file watcher to detect and index the new file
+      await waitForCondition(async () => {
+        const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('new-file.md');
+        return !!doc;
+      }, { timeout: 10000, interval: 100 });
 
       const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('new-file.md');
       expect(doc).toBeTruthy();
-    });
+    }, 15000);
 
     it('should detect file modifications', async () => {
-      const filePath = path.join(TEST_VAULT_DIR, 'test.md');
+      const filePath = path.join(vaultPath, 'test.md');
       await fs.writeFile(filePath, mockNotes.simple);
 
+      // Wait a bit for file system to settle
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
       await indexer.start();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait until the initial indexing of test.md completes
+      await waitForCondition(async () => {
+        const doc1 = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
+        return !!doc1;
+      }, { timeout: 10000, interval: 100 });
 
       const doc1 = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
+      expect(doc1).toBeTruthy();
       const originalChecksum = doc1.checksum;
 
       // Modify file
       await fs.writeFile(filePath, mockNotes.withFrontmatter);
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+
+      // Wait for the file change to be indexed and checksum to change
+      await waitForCondition(async () => {
+        const doc2 = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
+        return doc2 && doc2.checksum !== originalChecksum;
+      }, { timeout: 15000, interval: 200 });
 
       const doc2 = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
+      expect(doc2).toBeTruthy();
       expect(doc2.checksum).not.toBe(originalChecksum);
-    });
+    }, 10000);
   });
 
   describe('Error Handling', () => {
     it('should handle missing provider gracefully', async () => {
       indexer.setProvider(null as any);
 
-      await fs.writeFile(path.join(TEST_VAULT_DIR, 'test.md'), mockNotes.simple);
+      await fs.writeFile(path.join(vaultPath, 'test.md'), mockNotes.simple);
+
+      // Wait a bit for file system to settle
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       await indexer.start();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait until the document is indexed
+      await waitForCondition(async () => {
+        const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
+        return !!doc;
+      }, { timeout: 10000, interval: 100 });
 
       // Should index document without embeddings
       const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
@@ -279,10 +379,17 @@ describe('Indexer Integration', () => {
 
       indexer.setProvider(failingProvider as any);
 
-      await fs.writeFile(path.join(TEST_VAULT_DIR, 'test.md'), mockNotes.simple);
+      await fs.writeFile(path.join(vaultPath, 'test.md'), mockNotes.simple);
+
+      // Wait a bit for file system to settle
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       await indexer.start();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait until the document is indexed even if embeddings failed
+      await waitForCondition(async () => {
+        const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');
+        return !!doc;
+      }, { timeout: 10000, interval: 100 });
 
       // Document should still be indexed
       const doc = db.prepare('SELECT * FROM documents WHERE path = ?').get('test.md');

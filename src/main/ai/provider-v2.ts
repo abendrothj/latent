@@ -3,7 +3,7 @@
  * Provides unified interface for OpenAI, Anthropic, Ollama, and custom models
  */
 
-import { generateText, streamText, generateObject, embed } from 'ai';
+import { generateText, streamText, embed } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { ollama } from 'ollama-ai-provider';

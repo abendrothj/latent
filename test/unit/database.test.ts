@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
+import * as schema from '../../src/main/db/schema';
 import {
   serializeEmbedding,
   deserializeEmbedding,
@@ -16,21 +18,28 @@ import {
   getBacklinks,
   searchNotesByVector,
 } from '../../src/main/db/queries';
-import { mockDocument, mockEmbedding, mockNotes } from '../fixtures/mockData';
+import { mockEmbedding } from '../fixtures/mockData';
 import { TEST_DIR } from '../setup';
 
 describe('Database Operations', () => {
   let db: Database.Database;
-  const dbPath = path.join(TEST_DIR, 'test-db.db');
+  let dbPath: string;
 
   beforeEach(() => {
-    // Create fresh database for each test
+    // Use a unique on-disk database per test in the system tempdir to avoid interference from test cleanup
+    dbPath = path.join(os.tmpdir(), `latent-unit-db-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+
     if (fs.existsSync(dbPath)) {
-      fs.unlinkSync(dbPath);
+      try {
+        fs.unlinkSync(dbPath);
+      } catch (e) {
+        // ignore transient errors
+      }
     }
 
     db = new Database(dbPath);
     db.pragma('foreign_keys = ON');
+    db.pragma('journal_mode = WAL');
 
     // Create schema
     db.exec(`
@@ -68,16 +77,12 @@ describe('Database Operations', () => {
     `);
 
     // Mock database functions to use this test database
-    const queries = require('../../src/main/db/queries');
-    queries.getDatabase = () => db;
+    vi.spyOn(schema, 'getDatabase').mockReturnValue(db);
   });
 
   afterEach(() => {
     if (db) {
       db.close();
-    }
-    if (fs.existsSync(dbPath)) {
-      fs.unlinkSync(dbPath);
     }
   });
 

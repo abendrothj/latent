@@ -45,7 +45,8 @@ export async function parseMarkdown(content: string): Promise<ParsedDocument> {
   });
 
   // Extract wikilinks using regex (remark doesn't support wikilinks by default)
-  const wikilinkRegex = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
+  // Use negative lookbehind to exclude embeds (![[...]])
+  const wikilinkRegex = /(?<!!)\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
   let match;
 
   while ((match = wikilinkRegex.exec(contentWithoutFrontmatter)) !== null) {
@@ -92,11 +93,13 @@ function extractText(node: any): string {
 }
 
 function normalizePath(rawPath: string): string {
-  // Remove .md extension if present
-  let normalized = rawPath.replace(/\.md$/, '');
+  let normalized = rawPath;
 
-  // Ensure .md extension
-  if (!normalized.endsWith('.md')) {
+  // Check if it's a file with an extension (image, pdf, etc.)
+  const hasExtension = /\.[a-zA-Z0-9]+$/.test(normalized);
+
+  // Only add .md extension if it's not already there and doesn't have another extension
+  if (!hasExtension && !normalized.endsWith('.md')) {
     normalized += '.md';
   }
 
@@ -110,9 +113,9 @@ export function countWords(text: string): number {
   // Remove markdown syntax for more accurate word count
   const cleaned = text
     .replace(/```[\s\S]*?```/g, '') // Code blocks
-    .replace(/`[^`]+`/g, '') // Inline code
+    .replace(/`([^`]+)`/g, '$1') // Inline code (keep content)
     .replace(/!\[.*?\]\(.*?\)/g, '') // Images
-    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // Links (keep text)
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Links (keep text)
     .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, '$2') // Wikilinks (keep display text)
     .replace(/[#*_~`]/g, '') // Markdown formatting
     .replace(/\s+/g, ' ') // Normalize whitespace

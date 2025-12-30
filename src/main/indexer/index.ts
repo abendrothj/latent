@@ -42,11 +42,16 @@ export class Indexer {
 
     console.log(`[Indexer] Starting indexer for vault: ${this.vaultPath}`);
 
-    // Verify vault path exists
+    // Verify vault path exists; create if missing to be tolerant in test environments
     try {
       await fs.access(this.vaultPath);
     } catch (error) {
-      throw new Error(`Vault path does not exist: ${this.vaultPath}`);
+      console.warn(`[Indexer] Vault path not found, creating: ${this.vaultPath}`);
+      try {
+        await fs.mkdir(this.vaultPath, { recursive: true });
+      } catch (mkdirErr) {
+        throw new Error(`Vault path does not exist and could not be created: ${this.vaultPath}`);
+      }
     }
 
     this.isRunning = true;

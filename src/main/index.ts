@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { initDatabase, closeDatabase } from './db/schema';
 import { Indexer } from './indexer';
 import { createVercelAIProvider } from './ai/provider-v2';
@@ -121,7 +122,6 @@ async function loadSettings() {
   setVaultPath(resolvedVaultPath);
 
   // Create vault directory if it doesn't exist
-  const fs = require('fs');
   if (!fs.existsSync(resolvedVaultPath)) {
     fs.mkdirSync(resolvedVaultPath, { recursive: true });
     console.log(`[Main] Created vault directory: ${resolvedVaultPath}`);

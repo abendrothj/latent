@@ -15,7 +15,7 @@ export default defineConfig({
             outDir: 'dist/main',
             sourcemap: true,
             rollupOptions: {
-              external: ['better-sqlite3', 'electron']
+              external: ['better-sqlite3', 'electron', 'tiktoken']
             }
           },
           resolve: {

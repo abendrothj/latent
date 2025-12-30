@@ -61,7 +61,7 @@ Quantum computers excel at:
 - Optimization`,
 };
 
-export const mockEmbedding = new Array(1536).fill(0).map((_, i) => Math.random());
+export const mockEmbedding = new Array(1536).fill(0).map(() => Math.random());
 
 export const mockChatResponse = {
   message: {

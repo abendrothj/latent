@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import Fonts */
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/newsreader/400.css';
+@import '@fontsource/newsreader/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-text-primary font-sans;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom Scrollbar - Minimal, hidden when not scrolling */
+  ::-webkit-scrollbar {
+    @apply w-1.5 h-1.5;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-sm;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-border-hover;
+  }
+
+  /* Hide scrollbar thumb when not actively scrolling */
+  *:not(:hover)::-webkit-scrollbar-thumb {
+    @apply bg-transparent;
+  }
+}
+
+@layer components {
+  /* Prose Styles for Editor */
+  .prose {
+    @apply text-text-primary max-w-none;
+  }
+
+  .prose h1 {
+    @apply text-3xl font-semibold mt-8 mb-4 text-text-primary;
+  }
+
+  .prose h2 {
+    @apply text-2xl font-semibold mt-6 mb-3 text-text-primary;
+  }
+
+  .prose h3 {
+    @apply text-xl font-medium mt-4 mb-2 text-text-primary;
+  }
+
+  .prose h4 {
+    @apply text-lg font-medium mt-3 mb-2 text-text-primary;
+  }
+
+  .prose p {
+    @apply mb-4 leading-relaxed;
+  }
+
+  .prose a {
+    @apply text-accent-secondary underline underline-offset-2 hover:text-accent transition-colors;
+  }
+
+  .prose strong {
+    @apply font-semibold text-text-primary;
+  }
+
+  .prose em {
+    @apply italic;
+  }
+
+  .prose code {
+    @apply bg-surface px-1.5 py-0.5 rounded font-mono text-sm text-accent-secondary;
+  }
+
+  .prose pre {
+    @apply bg-surface p-4 rounded-lg overflow-x-auto my-4 border border-border;
+  }
+
+  .prose pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .prose blockquote {
+    @apply border-l-2 border-accent pl-4 italic text-text-secondary my-4;
+  }
+
+  .prose ul {
+    @apply list-disc list-inside my-4 space-y-2;
+  }
+
+  .prose ol {
+    @apply list-decimal list-inside my-4 space-y-2;
+  }
+
+  .prose li {
+    @apply text-text-primary;
+  }
+
+  .prose hr {
+    @apply border-border my-8;
+  }
+
+  /* Wikilink styling */
+  .prose .wikilink {
+    @apply text-accent-secondary underline decoration-dotted underline-offset-2;
+  }
+}
+
+@layer utilities {
+  /* Focus visible styles */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  /* Caret animation for editor */
+  textarea:focus {
+    animation: caret-pulse 1s ease-in-out infinite;
+  }
+
+  /* Smooth scrolling */
+  .smooth-scroll {
+    scroll-behavior: smooth;
+  }
+
+  /* Glass effect (subtle) */
+  .glass {
+    @apply bg-surface/80 backdrop-blur-sm;
+  }
+}

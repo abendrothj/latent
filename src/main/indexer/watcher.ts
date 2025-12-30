@@ -1,4 +1,5 @@
 import chokidar from 'chokidar';
+import fs from 'fs/promises';
 import path from 'path';
 import type { IndexProgress } from '../../shared/types';
 import { WATCH_PATTERNS, IGNORED_PATTERNS, DEBOUNCE_DELAY_MS } from '../../shared/constants';
@@ -20,6 +21,10 @@ export class FileWatcher {
   private debounceTimer: NodeJS.Timeout | null = null;
   private onEvent: FileEventCallback | null = null;
   private onProgress: ProgressCallback | null = null;
+  private readyPromise: Promise<void> | null = null;
+  private readyResolve: (() => void) | null = null;
+  private pollTimer: NodeJS.Timeout | null = null;
+  private knownFiles: Map<string, number> = new Map(); // relativePath -> mtimeMs
 
   constructor(
     private vaultPath: string,
@@ -38,6 +43,11 @@ export class FileWatcher {
     this.onEvent = onEvent;
     this.onProgress = onProgress;
 
+    // Create ready promise
+    this.readyPromise = new Promise((resolve) => {
+      this.readyResolve = resolve;
+    });
+
     const patterns = this.options?.patterns || WATCH_PATTERNS;
     const watchPaths = patterns.map((pattern) => path.join(this.vaultPath, pattern));
 
@@ -49,7 +59,7 @@ export class FileWatcher {
       persistent: true,
       ignoreInitial: false,
       awaitWriteFinish: {
-        stabilityThreshold: 500,
+        stabilityThreshold: 200,
         pollInterval: 100,
       },
     });
@@ -58,8 +68,21 @@ export class FileWatcher {
       .on('add', (filePath) => this.enqueueEvent('add', filePath))
       .on('change', (filePath) => this.enqueueEvent('change', filePath))
       .on('unlink', (filePath) => this.enqueueEvent('unlink', filePath))
-      .on('ready', () => {
+      .on('ready', async () => {
         console.log('[Watcher] Initial scan complete, watching for changes...');
+          // Initialize knownFiles map by doing an initial scan
+        try {
+          await this.scanForChanges();
+        } catch (e) {
+          console.error('[Watcher] Failed to initialize known files:', e);
+        }
+
+        // Start polling as a fallback for missing FS events
+        this.pollTimer = setInterval(() => this.scanForChanges(), 500);
+
+        if (this.readyResolve) {
+          this.readyResolve();
+        }
       })
       .on('error', (error) => {
         console.error('[Watcher] Error:', error);
@@ -76,6 +99,11 @@ export class FileWatcher {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
+    }
+
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
     }
 
     this.eventQueue.clear();
@@ -131,6 +159,20 @@ export class FileWatcher {
           await this.onEvent(event);
         }
 
+        // Update knownFiles map for add/change/unlink
+        if (event.type === 'add' || event.type === 'change') {
+          try {
+            const full = path.join(this.vaultPath, event.path);
+            const st = await fs.stat(full);
+            this.knownFiles.set(event.path, st.mtimeMs);
+          } catch (e) {
+            // ignore stat errors
+            this.knownFiles.delete(event.path);
+          }
+        } else if (event.type === 'unlink') {
+          this.knownFiles.delete(event.path);
+        }
+
         if (this.onProgress) {
           this.onProgress({
             phase: 'indexing',
@@ -165,6 +207,65 @@ export class FileWatcher {
     console.log('[Watcher] Queue processing complete');
   }
 
+  // Polling fallback: scan the vault and enqueue events for any changes missed by chokidar
+  private async scanForChanges(): Promise<void> {
+    const current: Map<string, number> = new Map();
+
+    const walk = async (dir: string) => {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const entryPath = path.join(dir, entry.name);
+
+        // Skip dotfiles
+        if (entry.name.startsWith('.')) continue;
+
+        if (entry.isDirectory()) {
+          await walk(entryPath);
+        } else if (entry.isFile() && entry.name.endsWith('.md')) {
+          const relativePath = path.relative(this.vaultPath, entryPath);
+          try {
+            const st = await fs.stat(entryPath);
+            current.set(relativePath, st.mtimeMs);
+          } catch (e) {
+            // ignore stat errors
+          }
+        }
+      }
+    };
+
+    try {
+      await walk(this.vaultPath);
+    } catch (error: any) {
+      console.error('[Watcher] Error while polling vault:', error);
+      return;
+    }
+
+    // Detect new or changed files
+    for (const [rel, mtime] of current.entries()) {
+      const known = this.knownFiles.get(rel);
+      const full = path.join(this.vaultPath, rel);
+
+      if (known === undefined) {
+        // New file
+        this.enqueueEvent('add', full);
+      } else if (known !== mtime) {
+        // Modified file
+        this.enqueueEvent('change', full);
+      }
+    }
+
+    // Detect deleted files
+    for (const rel of Array.from(this.knownFiles.keys())) {
+      if (!current.has(rel)) {
+        const full = path.join(this.vaultPath, rel);
+        this.enqueueEvent('unlink', full);
+      }
+    }
+
+    // Replace knownFiles with current snapshot
+    this.knownFiles = current;
+  }
+
   /**
    * Manually trigger indexing of all files (for initial scan)
    */
@@ -173,17 +274,44 @@ export class FileWatcher {
       throw new Error('Watcher not started');
     }
 
-    const watched = this.watcher.getWatched();
+    // Wait for initial scan to complete
+    if (this.readyPromise) {
+      await this.readyPromise;
+    }
+
     const allFiles: string[] = [];
 
-    // Collect all watched files
-    for (const [dir, files] of Object.entries(watched)) {
-      for (const file of files) {
-        if (file.endsWith('.md')) {
-          const fullPath = path.join(dir, file);
-          const relativePath = path.relative(this.vaultPath, fullPath);
+    // Walk the vault directory directly to avoid relying on chokidar internal state
+    const walk = async (dir: string) => {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const entryPath = path.join(dir, entry.name);
+
+        // Skip dotfiles/directories
+        if (entry.name.startsWith('.')) continue;
+
+        if (entry.isDirectory()) {
+          await walk(entryPath);
+        } else if (entry.isFile() && entry.name.endsWith('.md')) {
+          const relativePath = path.relative(this.vaultPath, entryPath);
           allFiles.push(relativePath);
         }
+      }
+    };
+
+    try {
+      await walk(this.vaultPath);
+    } catch (error: any) {
+      console.error('[Watcher] Error while scanning vault:', error);
+    }
+
+    // Initialize known files map if empty
+    for (const f of allFiles) {
+      try {
+        const st = await fs.stat(path.join(this.vaultPath, f));
+        this.knownFiles.set(f, st.mtimeMs);
+      } catch (e) {
+        // ignore
       }
     }
 
@@ -197,17 +325,13 @@ export class FileWatcher {
       });
     }
 
-    // Process files in batches
+    // Process files sequentially
     for (let i = 0; i < allFiles.length; i++) {
       const filePath = allFiles[i];
 
       try {
         if (this.onEvent) {
-          await this.onEvent({
-            type: 'add',
-            path: filePath,
-            timestamp: Date.now(),
-          });
+          await this.onEvent({ type: 'add', path: filePath, timestamp: Date.now() });
         }
 
         if (this.onProgress) {
@@ -224,11 +348,7 @@ export class FileWatcher {
     }
 
     if (this.onProgress) {
-      this.onProgress({
-        phase: 'complete',
-        current: allFiles.length,
-        total: allFiles.length,
-      });
+      this.onProgress({ phase: 'complete', current: allFiles.length, total: allFiles.length });
     }
   }
 }

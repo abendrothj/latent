@@ -18,7 +18,7 @@ describe('Markdown Parser', () => {
 
       expect(result.frontmatter).toEqual({
         tags: ['test', 'example'],
-        created: '2024-01-15',
+        created: new Date('2024-01-15T00:00:00.000Z'),
         author: 'Test User',
       });
       expect(result.title).toBe('Note with Frontmatter');

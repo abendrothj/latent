@@ -1,13 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
+import os from 'os';
+import * as schema from "../../src/main/db/schema";
+import * as queries from '../../src/main/db/queries';
 import { setVaultPath, setLLMProvider, executeToolCall } from '../../src/main/ai/tools';
 import { TEST_VAULT_DIR } from '../setup';
 import { mockNotes, mockEmbedding, mockSearchResults } from '../fixtures/mockData';
 
 describe('AI Tools', () => {
-  beforeEach(() => {
-    setVaultPath(TEST_VAULT_DIR);
+  let vaultPath: string = '';
+
+  beforeEach(async () => {
+    // Use a unique temp vault per test to avoid cross-test interference
+    vaultPath = path.join(os.tmpdir(), `latent-tools-vault-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await fs.mkdir(vaultPath, { recursive: true });
+    setVaultPath(vaultPath);
 
     // Mock LLM provider
     const mockProvider = {
@@ -23,17 +31,25 @@ describe('AI Tools', () => {
   });
 
   afterEach(async () => {
-    // Clean up test files
-    const files = await fs.readdir(TEST_VAULT_DIR);
-    for (const file of files) {
-      await fs.unlink(path.join(TEST_VAULT_DIR, file));
+    // Clean up test vault
+    try {
+      if (vaultPath) {
+        await fs.rm(vaultPath, { recursive: true, force: true });
+      }
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') {
+        throw error;
+      }
     }
   });
 
   describe('read_note', () => {
     it('should read existing note', async () => {
-      const filePath = path.join(TEST_VAULT_DIR, 'test.md');
+      const filePath = path.join(vaultPath, 'test.md');
       await fs.writeFile(filePath, mockNotes.simple);
+
+      // Small delay to ensure filesystem settles (helps on CI/slow systems)
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const result = await executeToolCall({
         id: 'test',
@@ -88,14 +104,14 @@ describe('AI Tools', () => {
         },
       });
 
-      const filePath = path.join(TEST_VAULT_DIR, 'new-note.md');
+      const filePath = path.join(vaultPath, 'new-note.md');
       const content = await fs.readFile(filePath, 'utf-8');
 
       expect(content).toBe(mockNotes.simple);
     });
 
     it('should overwrite existing note', async () => {
-      const filePath = path.join(TEST_VAULT_DIR, 'existing.md');
+      const filePath = path.join(vaultPath, 'existing.md');
       await fs.writeFile(filePath, 'Old content');
 
       await executeToolCall({
@@ -127,7 +143,7 @@ describe('AI Tools', () => {
         },
       });
 
-      const filePath = path.join(TEST_VAULT_DIR, 'subfolder', 'nested', 'note.md');
+      const filePath = path.join(vaultPath, 'subfolder', 'nested', 'note.md');
       const content = await fs.readFile(filePath, 'utf-8');
 
       expect(content).toBe(mockNotes.simple);
@@ -152,7 +168,7 @@ describe('AI Tools', () => {
 
   describe('update_frontmatter', () => {
     it('should update frontmatter fields', async () => {
-      const filePath = path.join(TEST_VAULT_DIR, 'test.md');
+      const filePath = path.join(vaultPath, 'test.md');
       await fs.writeFile(filePath, mockNotes.withFrontmatter);
 
       await executeToolCall({
@@ -178,7 +194,7 @@ describe('AI Tools', () => {
     });
 
     it('should add frontmatter to note without it', async () => {
-      const filePath = path.join(TEST_VAULT_DIR, 'test.md');
+      const filePath = path.join(vaultPath, 'test.md');
       await fs.writeFile(filePath, mockNotes.simple);
 
       await executeToolCall({
@@ -203,7 +219,7 @@ describe('AI Tools', () => {
     });
 
     it('should preserve existing frontmatter fields', async () => {
-      const filePath = path.join(TEST_VAULT_DIR, 'test.md');
+      const filePath = path.join(vaultPath, 'test.md');
       await fs.writeFile(filePath, mockNotes.withFrontmatter);
 
       await executeToolCall({
@@ -234,8 +250,7 @@ describe('AI Tools', () => {
   describe('search_notes', () => {
     it('should call LLM provider for embeddings', async () => {
       // Mock database query to return empty results
-      const queries = require('../../src/main/db/queries');
-      queries.searchNotesByVector = vi.fn().mockReturnValue([]);
+      vi.spyOn(queries, 'searchNotesByVector').mockReturnValue([]);
 
       const mockProvider = {
         name: 'mock',
@@ -266,8 +281,7 @@ describe('AI Tools', () => {
 
     it('should return search results', async () => {
       // Mock database query
-      const queries = require('../../src/main/db/queries');
-      queries.searchNotesByVector = vi.fn().mockReturnValue(mockSearchResults);
+      vi.spyOn(queries, 'searchNotesByVector').mockReturnValue(mockSearchResults);
 
       const results = await executeToolCall({
         id: 'test',
@@ -305,7 +319,6 @@ describe('AI Tools', () => {
   describe('list_backlinks', () => {
     it('should return backlinks from database', async () => {
       // Mock database query
-      const queries = require('../../src/main/db/queries');
       const mockBacklinks = [
         {
           source_path: 'source1.md',
@@ -315,7 +328,7 @@ describe('AI Tools', () => {
         },
       ];
 
-      queries.getBacklinks = vi.fn().mockReturnValue(mockBacklinks);
+      vi.spyOn(queries, 'getBacklinks').mockReturnValue(mockBacklinks);
 
       const results = await executeToolCall({
         id: 'test',
@@ -346,7 +359,7 @@ describe('AI Tools', () => {
     });
 
     it('should parse JSON arguments', async () => {
-      const filePath = path.join(TEST_VAULT_DIR, 'test.md');
+      const filePath = path.join(vaultPath, 'test.md');
       await fs.writeFile(filePath, mockNotes.simple);
 
       const result = await executeToolCall({

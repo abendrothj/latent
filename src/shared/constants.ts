@@ -19,7 +19,7 @@ export const MIN_SIMILARITY_SCORE = 0.5;
 
 // File watching
 export const WATCH_PATTERNS = ['**/*.md'];
-export const IGNORED_PATTERNS = [/(^|[\/\\])\../]; // Ignore dotfiles
+export const IGNORED_PATTERNS = [/(^|[/\\])\../]; // Ignore dotfiles
 
 // Settings keys
 export const SETTINGS_KEYS = {

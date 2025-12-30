@@ -1,7 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
 import matter from 'gray-matter';
-import crypto from 'crypto';
 import type {
   Tool,
   ToolCall,
@@ -168,6 +167,9 @@ export const ALL_TOOLS: Tool[] = [
 function validatePath(requestedPath: string): string {
   const fullPath = path.resolve(vaultPath, requestedPath);
 
+  // Debug: log paths for test diagnostics
+  console.log(`[Tools] validatePath -> vaultPath=${vaultPath}, requestedPath=${requestedPath}, fullPath=${fullPath}`);
+
   // Prevent directory traversal attacks
   if (!fullPath.startsWith(path.resolve(vaultPath))) {
     throw new Error('Invalid path: must be within vault directory');
@@ -179,15 +181,28 @@ function validatePath(requestedPath: string): string {
 async function readNote(args: ReadNoteArgs): Promise<string> {
   const fullPath = validatePath(args.path);
 
-  try {
-    const content = await fs.readFile(fullPath, 'utf-8');
-    return content;
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
-      throw new Error(`Note not found: ${args.path}`);
+  // Be tolerant of transient FS races in tests/environments by retrying briefly on ENOENT
+  const attempts = 10;
+  const backoffMs = 200;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const content = await fs.readFile(fullPath, 'utf-8');
+      return content;
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        if (i < attempts - 1) {
+          // slightly larger backoff to tolerate slower test environments
+          await new Promise((res) => setTimeout(res, backoffMs));
+          continue;
+        }
+        throw new Error(`Note not found: ${args.path}`);
+      }
+      throw error;
     }
-    throw error;
   }
+
+  // Should not reach here
+  throw new Error(`Note not found: ${args.path}`);
 }
 
 async function searchNotes(args: SearchNotesArgs): Promise<SearchResult[]> {

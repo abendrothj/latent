@@ -5,7 +5,7 @@ interface EditorProps {
   onNoteChange: (path: string | null) => void;
 }
 
-function Editor({ currentNote, onNoteChange }: EditorProps) {
+function Editor({ currentNote }: EditorProps) {
   const [content, setContent] = useState<string>('');
   const [isEditing, setIsEditing] = useState(false);
 
