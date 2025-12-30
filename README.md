@@ -98,15 +98,51 @@ latent/
 
 ## Quick Start
 
+### Prerequisites
+
+- Node.js 20+
+- npm 10+
+- Git
+
+### Installation
+
 ```bash
-# Install dependencies
-npm install
+# 1. Clone or navigate to project
+cd latent
 
-# Start development server
+# 2. Run setup script (creates vault, database, config)
+chmod +x scripts/setup.sh
+./scripts/setup.sh
+
+# 3. Configure your AI provider (edit .env.local)
+# Option A: OpenAI (cloud)
+OPENAI_API_KEY=sk-your-key-here
+
+# Option B: Ollama (local)
+OLLAMA_BASE_URL=http://localhost:11434
+
+# 4. Start development server
 npm run dev
+```
 
-# Build for production
-npm run build
+The app will open automatically. You'll see the sample vault with example notes.
+
+### For Local Models (Ollama)
+
+```bash
+# Install Ollama
+# Visit: https://ollama.ai
+
+# Start Ollama server
+ollama serve
+
+# Pull a model
+ollama pull llama3.2
+
+# Pull an embedding model
+ollama pull nomic-embed-text
+
+# Latent will auto-detect Ollama at http://localhost:11434
 ```
 
 ## Documentation
