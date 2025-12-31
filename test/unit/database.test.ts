@@ -19,7 +19,6 @@ import {
   searchNotesByVector,
 } from '../../src/main/db/queries';
 import { mockEmbedding } from '../fixtures/mockData';
-import { TEST_DIR } from '../setup';
 
 describe('Database Operations', () => {
   let db: Database.Database;

@@ -4,7 +4,6 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import * as schema from '../../src/main/db/schema';
 import { Indexer } from '../../src/main/indexer';
-import { TEST_VAULT_DIR, TEST_DB_PATH, TEST_DIR } from '../setup';
 import os from 'os';
 import { waitForCondition } from '../utils/poll';
 import { mockNotes, mockEmbedding } from '../fixtures/mockData';

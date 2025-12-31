@@ -2,10 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import * as schema from "../../src/main/db/schema";
 import * as queries from '../../src/main/db/queries';
 import { setVaultPath, setLLMProvider, executeToolCall } from '../../src/main/ai/tools';
-import { TEST_VAULT_DIR } from '../setup';
 import { mockNotes, mockEmbedding, mockSearchResults } from '../fixtures/mockData';
 
 describe('AI Tools', () => {

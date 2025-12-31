@@ -16,7 +16,7 @@ export function getEncoding(_encoding: string) {
       });
       return new Uint32Array(tokens.length > 0 ? tokens : []);
     },
-    decode: (tokens: number[] | Uint32Array) => {
+    decode: (_tokens: number[] | Uint32Array) => {
       return 'decoded text';
     },
     free: () => {},
