@@ -7,6 +7,9 @@
   "license": "MIT",
   "private": true,
   "scripts": {
+    "dev:serve": "vite",
+    "dev:electron": "wait-on http://localhost:5173 && VITE_DEV_SERVER_URL=http://localhost:5173 unset ELECTRON_RUN_AS_NODE && electron .",
+    "dev:all": "concurrently \"npm:dev:serve\" \"npm:dev:electron\"",
     "dev": "unset ELECTRON_RUN_AS_NODE && vite",
     "build": "vite build",
     "start": "unset ELECTRON_RUN_AS_NODE && electron .",
@@ -82,7 +85,8 @@
     "vite": "^7.3.0",
     "vite-plugin-electron": "latest",
     "vite-plugin-electron-renderer": "^0.14.6",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.16",
+    "wait-on": "^9.0.3"
   },
   "build": {
     "appId": "com.latent.app",

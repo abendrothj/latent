@@ -28,11 +28,62 @@ function createWindow() {
 
   // Load app
   if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL).catch(err => {
+      console.error('[Main] loadURL error:', err);
+    });
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  // Forward renderer console messages to the main terminal (filter Autofill noise)
+  mainWindow.webContents.on('console-message', (_, level, message, line, sourceId) => {
+    // Ignore DevTools Autofill noise
+    if (typeof message === 'string' && (message.includes('Autofill.enable') || message.includes('Autofill.setAddresses') || message.includes('Autofill'))) return;
+    console.log(`[Renderer console] ${message} (source: ${sourceId}:${line})`);
+  });
+
+  // Log failed loads so it's obvious when dev server is unreachable
+  mainWindow.webContents.on('did-fail-load', (_, errorCode, errorDescription, validatedURL) => {
+    console.error('[Renderer] failed to load:', { errorCode, errorDescription, validatedURL });
+  });
+
+  // When DOM is ready, collect basic diagnostics from the renderer
+  mainWindow.webContents.on('dom-ready', async () => {
+    try {
+      const info = await mainWindow!.webContents.executeJavaScript(`(function(){
+        if (!window.__latentStartup) {
+          window.__latentStartup = { errors: [] };
+          window.addEventListener('error', e => window.__latentStartup.errors.push({message: e.message, filename: e.filename, lineno: e.lineno}));
+          window.addEventListener('unhandledrejection', e => window.__latentStartup.errors.push({message: e.reason?.message || String(e.reason), type: 'rejection'}));
+        }
+
+        const scripts = Array.from(document.getElementsByTagName('script')).map(s => ({ src: s.src || null, type: s.type || null, textLength: s.textContent ? s.textContent.length : 0 }));
+        const links = Array.from(document.getElementsByTagName('link')).map(l => ({ rel: l.rel, href: l.href }));
+
+        const docHTML = document.documentElement ? document.documentElement.outerHTML : '';
+        return {
+          href: location.href,
+          readyState: document.readyState,
+          rootExists: !!document.getElementById('root'),
+          bodyLength: document.body ? document.body.innerHTML.length : -1,
+          docLength: docHTML.length,
+          docHTML: docHTML.slice(0,2000),
+          headLength: document.head ? document.head.innerHTML.length : -1,
+          scripts,
+          links,
+          viteClientPresent: !!window.__VITE_CLIENT__ || !!window.__vite_HMR || !!window.__VITE_HMR__ || !!window.__VITE_DEV_CLIENT__,
+          errors: window.__latentStartup.errors.slice(0,20)
+        };
+      })();`, true);
+      console.log('[Renderer dom-ready info]', info);
+      if (info && info.errors && info.errors.length) {
+        console.error('[Renderer dom-ready] captured errors:', info.errors);
+      }
+    } catch (err) {
+      console.error('[Main] executeJavaScript error:', err);
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
