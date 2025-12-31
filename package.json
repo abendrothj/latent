@@ -50,6 +50,7 @@
     "gray-matter": "^4.0.3",
     "lucide-react": "^0.468.0",
     "ollama-ai-provider": "latest",
+    "react-markdown": "^10.1.0",
     "react-resizable-panels": "^2.1.7",
     "remark": "^15.0.1",
     "remark-frontmatter": "^5.0.0",
@@ -62,6 +63,8 @@
     "unist-util-visit": "^5.0.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.1",
+    "@testing-library/user-event": "^14.6.1",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^20.17.10",
     "@types/react": "^18.3.18",

@@ -8,11 +8,14 @@ import type {
   SearchNotesArgs,
   SearchResult,
   WriteNoteArgs,
+  RenameNoteArgs,
+  DeleteNoteArgs,
   UpdateFrontmatterArgs,
   ListBacklinksArgs,
   Backlink,
 } from '../../shared/types';
 import { getBacklinks, searchNotesByVector } from '../db/queries';
+import { getDatabase } from '../db/schema';
 import { LLMProvider } from './provider';
 
 let vaultPath: string = '';
@@ -139,12 +142,31 @@ export const LIST_BACKLINKS: Tool = {
   },
 };
 
+export const DELETE_NOTE: Tool = {
+  type: 'function',
+  function: {
+    name: 'delete_note',
+    description: 'Delete a note file from the vault and remove DB references',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Relative path to the note to delete',
+        },
+      },
+      required: ['path'],
+    },
+  },
+};
+
 export const ALL_TOOLS: Tool[] = [
   READ_NOTE,
   SEARCH_NOTES,
   WRITE_NOTE,
   UPDATE_FRONTMATTER,
   LIST_BACKLINKS,
+  DELETE_NOTE,
 ];
 
 // Tool Implementations
@@ -223,6 +245,32 @@ async function writeNote(args: WriteNoteArgs): Promise<string> {
   return `Note created successfully: ${args.path}`;
 }
 
+async function renameNote(args: RenameNoteArgs): Promise<string> {
+  const oldFull = validatePath(args.oldPath);
+  const newFull = validatePath(args.newPath);
+
+  // Ensure destination directory exists
+  await fs.mkdir(path.dirname(newFull), { recursive: true });
+
+  // Rename file on filesystem
+  await fs.rename(oldFull, newFull);
+
+  // Update database references (best-effort; skip if DB not initialized)
+  try {
+    const db = getDatabase();
+    db.prepare('UPDATE documents SET path = ? WHERE path = ?').run(args.newPath, args.oldPath);
+    db.prepare('UPDATE links SET source_path = ? WHERE source_path = ?').run(args.newPath, args.oldPath);
+    db.prepare('UPDATE links SET target_path = ? WHERE target_path = ?').run(args.newPath, args.oldPath);
+  } catch (err) {
+    // DB not initialized in some test environments or CLI runs; ignore
+    console.warn('[Tools] renameNote: skipping DB update -', err?.message || err);
+  }
+
+  // TODO: Trigger re-indexing for both old and new files if needed
+
+  return `Renamed ${args.oldPath} -> ${args.newPath}`;
+}
+
 async function updateFrontmatter(args: UpdateFrontmatterArgs): Promise<string> {
   const fullPath = validatePath(args.path);
 
@@ -250,6 +298,32 @@ async function listBacklinks(args: ListBacklinksArgs): Promise<Backlink[]> {
   return getBacklinks(args.path);
 }
 
+async function deleteNote(args: DeleteNoteArgs): Promise<string> {
+  const fullPath = validatePath(args.path);
+
+  // Remove file (be tolerant if it already doesn't exist)
+  try {
+    await fs.unlink(fullPath);
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      console.warn(`[Tools] deleteNote: file not found ${args.path}`);
+    } else {
+      throw err;
+    }
+  }
+
+  // Remove from DB if initialized (best-effort)
+  try {
+    const db = getDatabase();
+    db.prepare('DELETE FROM documents WHERE path = ?').run(args.path);
+    db.prepare('DELETE FROM links WHERE source_path = ? OR target_path = ?').run(args.path, args.path);
+  } catch (err) {
+    console.warn('[Tools] deleteNote: skipping DB cleanup -', err?.message || err);
+  }
+
+  return `Deleted ${args.path}`;
+}
+
 // Tool Executor
 
 export async function executeToolCall(toolCall: ToolCall): Promise<any> {
@@ -267,11 +341,17 @@ export async function executeToolCall(toolCall: ToolCall): Promise<any> {
     case 'write_note':
       return await writeNote(args);
 
+    case 'rename_note':
+      return await renameNote(args);
+
     case 'update_frontmatter':
       return await updateFrontmatter(args);
 
     case 'list_backlinks':
       return await listBacklinks(args);
+
+    case 'delete_note':
+      return await deleteNote(args);
 
     default:
       throw new Error(`Unknown tool: ${toolCall.function.name}`);

@@ -5,6 +5,7 @@ import type {
   SearchNotesArgs,
   ReadNoteArgs,
   WriteNoteArgs,
+  RenameNoteArgs,
   UpdateFrontmatterArgs,
   ListBacklinksArgs,
   IndexProgress,
@@ -26,6 +27,10 @@ contextBridge.exposeInMainWorld('electron', {
   readNote: (args: ReadNoteArgs) => ipcRenderer.invoke(IPC_CHANNELS.READ_NOTE, args),
   searchNotes: (args: SearchNotesArgs) => ipcRenderer.invoke(IPC_CHANNELS.SEARCH_NOTES, args),
   writeNote: (args: WriteNoteArgs) => ipcRenderer.invoke(IPC_CHANNELS.WRITE_NOTE, args),
+  renameNote: (args: RenameNoteArgs) => ipcRenderer.invoke(IPC_CHANNELS.RENAME_NOTE, args),
+  deleteNote: (args: DeleteNoteArgs) => ipcRenderer.invoke(IPC_CHANNELS.DELETE_NOTE, args),
+  showContextMenu: (options: { items: { label: string; id: string }[]; x?: number; y?: number }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SHOW_CONTEXT_MENU, options),
   updateFrontmatter: (args: UpdateFrontmatterArgs) =>
     ipcRenderer.invoke(IPC_CHANNELS.UPDATE_FRONTMATTER, args),
   listBacklinks: (args: ListBacklinksArgs) =>
@@ -88,6 +93,9 @@ declare global {
       readNote: (args: ReadNoteArgs) => Promise<string>;
       searchNotes: (args: SearchNotesArgs) => Promise<any>;
       writeNote: (args: WriteNoteArgs) => Promise<string>;
+      renameNote: (args: RenameNoteArgs) => Promise<string>;
+      deleteNote: (args: DeleteNoteArgs) => Promise<string>;
+      showContextMenu: (options: { items: { label: string; id: string }[]; x?: number; y?: number }) => Promise<{ id: string | null }>;
       updateFrontmatter: (args: UpdateFrontmatterArgs) => Promise<string>;
       listBacklinks: (args: ListBacklinksArgs) => Promise<any>;
       chat: (messages: Message[]) => Promise<any>;

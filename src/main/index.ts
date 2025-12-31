@@ -259,6 +259,37 @@ function setupIPCHandlers() {
     });
   });
 
+  ipcMain.handle(IPC_CHANNELS.RENAME_NOTE, async (_, args) => {
+    return await executeToolCall({
+      id: 'ipc',
+      type: 'function',
+      function: { name: 'rename_note', arguments: JSON.stringify(args) },
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.DELETE_NOTE, async (_, args) => {
+    return await executeToolCall({
+      id: 'ipc',
+      type: 'function',
+      function: { name: 'delete_note', arguments: JSON.stringify(args) },
+    });
+  });
+
+  ipcMain.handle(IPC_CHANNELS.SHOW_CONTEXT_MENU, async (event, opts: { items: { label: string; id: string }[]; x?: number; y?: number }) => {
+    const { Menu } = require('electron');
+    return await new Promise<{ id: string | null }>((resolve) => {
+      const template = opts.items.map((it) => ({
+        label: it.label,
+        click: () => resolve({ id: it.id }),
+      }));
+
+      const menu = Menu.buildFromTemplate(template as any);
+
+      // If user closes menu without selection, resolve null
+      menu.popup({ window: mainWindow!, x: opts.x, y: opts.y, callback: () => setTimeout(() => resolve({ id: null }), 50) });
+    });
+  });
+
   // AI Chat
   ipcMain.handle(IPC_CHANNELS.CHAT, async (_, messages: Message[]) => {
     if (!llmProvider) {

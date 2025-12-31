@@ -8,6 +8,14 @@ function App() {
   const [vaultPath, setVaultPath] = useState<string>('');
   const [indexProgress, setIndexProgress] = useState<IndexProgress | null>(null);
   const [currentNote, setCurrentNote] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState<string>('');
+
+  // Listen for global announcement events for screen-reader friendly messages
+  React.useEffect(() => {
+    const handler = (e: any) => setAnnouncement(e.detail || '');
+    window.addEventListener('announce', handler);
+    return () => window.removeEventListener('announce', handler);
+  }, []);
 
   useEffect(() => {
     // Load vault path
@@ -39,6 +47,11 @@ function App() {
       </div>
 
       <StatusBar progress={indexProgress} />
+
+      {/* ARIA live region for announcements (screen readers) */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
+      </div>
     </div>
   );
 }

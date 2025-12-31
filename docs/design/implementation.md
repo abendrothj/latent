@@ -303,6 +303,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
 ## Phase 6: Editor Component
 
+### Notes: Title & Rename behavior
+- New notes are created with a visible default title of **Untitled** (content: `# Untitled\n\n`). The underlying filename will be `untitled-<timestamp>.md` to avoid collisions.
+- The editor header shows an editable title (click pencil to edit). Saving the title will rename the underlying file (attempts a filesystem rename and updates DB links). Errors show an inline message.
+
+
 `src/renderer/components/Editor.tsx`:
 
 ```tsx

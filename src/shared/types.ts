@@ -174,6 +174,15 @@ export interface WriteNoteArgs {
   content: string;
 }
 
+export interface RenameNoteArgs {
+  oldPath: string;
+  newPath: string;
+}
+
+export interface DeleteNoteArgs {
+  path: string;
+}
+
 export interface UpdateFrontmatterArgs {
   path: string;
   updates: Record<string, any>;

@@ -48,6 +48,9 @@ export const IPC_CHANNELS = {
   WRITE_NOTE: 'tool:write-note',
   UPDATE_FRONTMATTER: 'tool:update-frontmatter',
   LIST_BACKLINKS: 'tool:list-backlinks',
+  RENAME_NOTE: 'tool:rename-note',
+  DELETE_NOTE: 'tool:delete-note',
+  SHOW_CONTEXT_MENU: 'menu:show',
 
   // AI
   CHAT: 'ai:chat',
