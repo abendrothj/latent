@@ -20,6 +20,7 @@ export function AIPanel({ currentNote }: AIPanelProps) {
   const [streamingMessage, setStreamingMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const streamingContentRef = useRef('');
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -39,6 +40,7 @@ export function AIPanel({ currentNote }: AIPanelProps) {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    const userInput = input;
     setInput('');
     setIsThinking(true);
 
@@ -60,35 +62,57 @@ You have access to tools to read, search, and write notes. Be concise and cite s
         })),
         {
           role: 'user' as const,
-          content: input,
+          content: userInput,
         },
       ];
 
-      const response = await window.electron.chat(aiMessages);
-
-      setIsThinking(false);
-
-      // Simulate streaming effect (word-by-word)
-      const words = response.message.content.split(' ');
-      let currentText = '';
-
-      for (let i = 0; i < words.length; i++) {
-        currentText += (i > 0 ? ' ' : '') + words[i];
-        setStreamingMessage(currentText);
-        await new Promise((resolve) => setTimeout(resolve, 30));
-      }
-
-      const assistantMessage: ChatMessage = {
-        role: 'assistant',
-        content: response.message.content,
-        timestamp: Date.now(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
+      // Reset streaming content
+      streamingContentRef.current = '';
       setStreamingMessage('');
+
+      // Use real streaming
+      const cleanup = window.electron.streamChat(
+        aiMessages,
+        (chunk) => {
+          // Update streaming message with each chunk
+          if (chunk.delta?.content) {
+            streamingContentRef.current += chunk.delta.content;
+            setStreamingMessage(streamingContentRef.current);
+          }
+        },
+        () => {
+          // Stream complete
+          setIsThinking(false);
+          const assistantMessage: ChatMessage = {
+            role: 'assistant',
+            content: streamingContentRef.current,
+            timestamp: Date.now(),
+          };
+          setMessages((prev) => [...prev, assistantMessage]);
+          setStreamingMessage('');
+          streamingContentRef.current = '';
+        },
+        (error) => {
+          // Stream error
+          console.error('Stream error:', error);
+          setIsThinking(false);
+          setStreamingMessage('');
+          streamingContentRef.current = '';
+          const errorMessage: ChatMessage = {
+            role: 'assistant',
+            content: `Error: ${error}`,
+            timestamp: Date.now(),
+          };
+          setMessages((prev) => [...prev, errorMessage]);
+        }
+      );
+
+      // Store cleanup function if needed for cancellation
+      return cleanup;
     } catch (error: any) {
       console.error('Chat error:', error);
       setIsThinking(false);
+      setStreamingMessage('');
 
       const errorMessage: ChatMessage = {
         role: 'assistant',
@@ -164,16 +188,7 @@ You have access to tools to read, search, and write notes. Be concise and cite s
           >
             <div className="text-xs text-text-tertiary uppercase tracking-wide">Assistant</div>
             <div className="bg-surface text-text-primary rounded-lg px-3 py-2 text-sm leading-relaxed mr-8">
-              {streamingMessage.split(' ').map((word, i) => (
-                <motion.span
-                  key={i}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: i * 0.03, duration: 0.1 }}
-                >
-                  {word}{' '}
-                </motion.span>
-              ))}
+              {streamingMessage}
             </div>
           </motion.div>
         )}

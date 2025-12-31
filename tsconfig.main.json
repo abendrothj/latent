@@ -2,10 +2,9 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2022"],
-    "module": "CommonJS",
-    "moduleResolution": "node",
-    "outDir": "./dist/main",
-    "rootDir": "./src/main"
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "outDir": "./dist/main"
   },
   "include": ["src/main/**/*", "src/shared/**/*"],
   "exclude": ["node_modules", "dist"]

@@ -1,4 +1,4 @@
-import { getEncoding } from 'tiktoken';
+import { get_encoding } from 'tiktoken';
 import type { TextChunk } from '../../shared/types';
 import { DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP } from '../../shared/constants';
 
@@ -8,7 +8,7 @@ export async function chunkDocument(
   overlap: number = DEFAULT_CHUNK_OVERLAP
 ): Promise<TextChunk[]> {
   // Use tiktoken for accurate token counting (OpenAI compatible)
-  const encoding = getEncoding('cl100k_base');
+  const encoding = get_encoding('cl100k_base');
 
   try {
     const tokens = encoding.encode(content);
@@ -22,13 +22,13 @@ export async function chunkDocument(
       if (chunkTokens.length < 50 && chunks.length > 0) {
         // Append to last chunk
         const lastChunk = chunks[chunks.length - 1];
-        const additionalText = encoding.decode(chunkTokens);
+        const additionalText = new TextDecoder().decode(encoding.decode(chunkTokens));
         lastChunk.content += '\n' + additionalText;
         lastChunk.tokenCount += chunkTokens.length;
         continue;
       }
 
-      const chunkText = encoding.decode(chunkTokens);
+      const chunkText = new TextDecoder().decode(encoding.decode(chunkTokens));
 
       chunks.push({
         content: chunkText,
@@ -51,7 +51,7 @@ export async function chunkDocumentSemantic(
   content: string,
   maxChunkSize: number = DEFAULT_CHUNK_SIZE
 ): Promise<TextChunk[]> {
-  const encoding = getEncoding('cl100k_base');
+  const encoding = get_encoding('cl100k_base');
 
   try {
     // Split by paragraphs (double newline)
@@ -82,7 +82,7 @@ export async function chunkDocumentSemantic(
         for (let i = 0; i < paragraphTokens.length; i += maxChunkSize) {
           const chunkTokens = paragraphTokens.slice(i, i + maxChunkSize);
           chunks.push({
-            content: encoding.decode(chunkTokens),
+            content: new TextDecoder().decode(encoding.decode(chunkTokens)),
             index: index++,
             tokenCount: chunkTokens.length,
           });
@@ -90,7 +90,7 @@ export async function chunkDocumentSemantic(
       } else {
         // Add paragraph to current chunk
         currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
-        currentTokens = currentTokens.concat(paragraphTokens);
+        currentTokens = currentTokens.concat(Array.from(paragraphTokens));
       }
     }
 

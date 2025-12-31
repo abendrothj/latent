@@ -3,9 +3,9 @@ import path from 'path';
 import fs from 'fs';
 import { initDatabase, closeDatabase } from './db/schema';
 import { Indexer } from './indexer';
-import { createVercelAIProvider } from './ai/provider-v2';
+import { createVercelAIProvider } from './ai/provider';
 import { setVaultPath, setLLMProvider, ALL_TOOLS, executeToolCall } from './ai/tools';
-import { getSetting, setSetting, getAllSettings } from './db/queries';
+import { getSetting, setSetting, getAllSettings, getAllDocuments } from './db/queries';
 import { SETTINGS_KEYS, DEFAULT_SETTINGS, IPC_CHANNELS } from '../shared/constants';
 import type { ProviderConfig, Message, IndexProgress } from '../shared/types';
 
@@ -20,7 +20,7 @@ function createWindow() {
     width: 1400,
     height: 900,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
+      preload: path.join(__dirname, '../preload/preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -162,6 +162,11 @@ function setupIPCHandlers() {
     return { success: true };
   });
 
+  // Documents
+  ipcMain.handle(IPC_CHANNELS.LIST_DOCUMENTS, async () => {
+    return getAllDocuments();
+  });
+
   // Tools
   ipcMain.handle(IPC_CHANNELS.READ_NOTE, async (_, args) => {
     return await executeToolCall({
@@ -214,6 +219,26 @@ function setupIPCHandlers() {
       tools: ALL_TOOLS,
       tool_choice: 'auto',
     });
+  });
+
+  // AI Chat Streaming
+  ipcMain.handle(IPC_CHANNELS.CHAT_STREAM, async (event, messages: Message[]) => {
+    if (!llmProvider) {
+      throw new Error('LLM provider not configured');
+    }
+
+    try {
+      for await (const chunk of llmProvider.streamChat({
+        messages,
+        tools: ALL_TOOLS,
+        tool_choice: 'auto',
+      })) {
+        event.sender.send(`${IPC_CHANNELS.CHAT_STREAM}:chunk`, chunk);
+      }
+      event.sender.send(`${IPC_CHANNELS.CHAT_STREAM}:done`);
+    } catch (error: any) {
+      event.sender.send(`${IPC_CHANNELS.CHAT_STREAM}:error`, error.message);
+    }
   });
 
   // Indexer

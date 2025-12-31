@@ -66,22 +66,7 @@ export const SEARCH_NOTES: Tool = {
         },
         filter: {
           type: 'object',
-          description: 'Optional filters',
-          properties: {
-            tags: {
-              type: 'array',
-              description: 'Filter by tags',
-              items: { type: 'string' },
-            },
-            date_after: {
-              type: 'string',
-              description: 'Only notes modified after this date (ISO 8601)',
-            },
-            date_before: {
-              type: 'string',
-              description: 'Only notes modified before this date (ISO 8601)',
-            },
-          },
+          description: 'Optional filters (tags, date_after, date_before)',
         },
       },
       required: ['query'],

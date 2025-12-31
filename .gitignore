@@ -7,6 +7,13 @@ dist/
 dist-electron/
 out/
 
+# TypeScript compiled files in src (should only be in dist)
+src/**/*.js
+src/**/*.d.ts
+src/**/*.js.map
+src/**/*.d.ts.map
+!src/**/*.test.js
+
 # Environment
 .env
 .env.local

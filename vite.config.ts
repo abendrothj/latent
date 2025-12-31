@@ -14,15 +14,28 @@ export default defineConfig({
           build: {
             outDir: 'dist/main',
             sourcemap: true,
+            minify: false,
             rollupOptions: {
-              external: ['better-sqlite3', 'electron', 'tiktoken']
+              external: [
+                'electron',
+                'better-sqlite3',
+                'tiktoken',
+                'chokidar',
+                /^node:.*/
+              ],
+              output: {
+                format: 'cjs',
+                entryFileNames: '[name].js',
+                inlineDynamicImports: true
+              }
             }
           },
           resolve: {
             alias: {
               '@shared': path.resolve(__dirname, 'src/shared'),
               '@main': path.resolve(__dirname, 'src/main')
-            }
+            },
+            extensions: ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json']
           }
         }
       },
@@ -31,7 +44,16 @@ export default defineConfig({
         vite: {
           build: {
             outDir: 'dist/preload',
-            sourcemap: true
+            sourcemap: true,
+            rollupOptions: {
+              external: [
+                'electron',
+                /^node:.*/
+              ]
+            }
+          },
+          resolve: {
+            extensions: ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json']
           }
         },
         onstart(options) {

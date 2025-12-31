@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AppLayout } from './components/AppLayout';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { EditorPane } from './components/Editor/EditorPane';
@@ -9,6 +9,7 @@ function App() {
   const [vaultPath, setVaultPath] = useState<string>('');
   const [indexProgress, setIndexProgress] = useState<IndexProgress | null>(null);
   const [currentNote, setCurrentNote] = useState<string | null>(null);
+  const sidebarRef = useRef<{ openSearch: () => void }>(null);
 
   useEffect(() => {
     // Load vault path
@@ -17,7 +18,20 @@ function App() {
     // Listen to indexer progress
     const unsubscribe = window.electron.onIndexerProgress(setIndexProgress);
 
-    return unsubscribe;
+    // Global keyboard shortcut for search (Cmd+K or Ctrl+K)
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        sidebarRef.current?.openSearch();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
   // Status bar content
@@ -32,7 +46,7 @@ function App() {
 
   return (
     <AppLayout
-      sidebar={<Sidebar />}
+      sidebar={<Sidebar ref={sidebarRef} onSelectNote={setCurrentNote} />}
       aiPanel={<AIPanel currentNote={currentNote} />}
       statusBar={statusBar}
     >

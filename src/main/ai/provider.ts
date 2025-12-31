@@ -4,9 +4,10 @@
  */
 
 import { generateText, streamText, embed } from 'ai';
-import { openai } from '@ai-sdk/openai';
-import { anthropic } from '@ai-sdk/anthropic';
-import { ollama } from 'ollama-ai-provider';
+import { createOpenAI } from '@ai-sdk/openai';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { createOllama } from 'ollama-ai-provider';
+import { z } from 'zod';
 import type {
   ChatRequest,
   ChatResponse,
@@ -17,7 +18,13 @@ import type {
   Message,
   ToolCall,
 } from '../../shared/types';
-import { LLMProvider } from './provider';
+
+export interface LLMProvider {
+  readonly name: string;
+  chat(request: ChatRequest): Promise<ChatResponse>;
+  streamChat(request: ChatRequest): AsyncIterable<ChatStreamChunk>;
+  embed(request: EmbedRequest): Promise<EmbedResponse>;
+}
 
 export class VercelAIProvider implements LLMProvider {
   readonly name: string;
@@ -33,20 +40,24 @@ export class VercelAIProvider implements LLMProvider {
   private createChatModel() {
     switch (this.config.type) {
       case 'openai':
-        return openai(this.config.model || 'gpt-4o', {
+        // Use createOpenAI to configure API key and baseURL
+        const openaiProvider = createOpenAI({
           apiKey: this.config.apiKey,
           baseURL: this.config.baseURL,
         });
+        return openaiProvider(this.config.model || 'gpt-4o');
 
       case 'anthropic':
-        return anthropic(this.config.model || 'claude-3-5-sonnet-20241022', {
+        const anthropicProvider = createAnthropic({
           apiKey: this.config.apiKey,
         });
+        return anthropicProvider(this.config.model || 'claude-3-5-sonnet-20241022');
 
       case 'ollama':
-        return ollama(this.config.model || 'llama3.2', {
+        const ollamaProvider = createOllama({
           baseURL: this.config.baseURL || 'http://localhost:11434',
         });
+        return ollamaProvider(this.config.model || 'llama3.2');
 
       default:
         throw new Error(`Unsupported provider type: ${this.config.type}`);
@@ -56,20 +67,22 @@ export class VercelAIProvider implements LLMProvider {
   private createEmbedModel() {
     switch (this.config.type) {
       case 'openai':
-        return openai.embedding('text-embedding-3-small', {
+        const openaiProvider = createOpenAI({
           apiKey: this.config.apiKey,
           baseURL: this.config.baseURL,
         });
+        return openaiProvider.embedding('text-embedding-3-small');
 
       case 'ollama':
-        return ollama.embedding(this.config.model || 'nomic-embed-text', {
+        const ollamaProvider = createOllama({
           baseURL: this.config.baseURL || 'http://localhost:11434',
         });
+        return ollamaProvider.embedding(this.config.model || 'nomic-embed-text');
 
       default:
         // Anthropic doesn't have embeddings, use OpenAI as fallback
         if (process.env.OPENAI_API_KEY) {
-          return openai.embedding('text-embedding-3-small');
+          return createOpenAI().embedding('text-embedding-3-small');
         }
         throw new Error(`Provider ${this.config.type} does not support embeddings`);
     }
@@ -77,14 +90,14 @@ export class VercelAIProvider implements LLMProvider {
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
     try {
-      // Convert tools to Vercel AI SDK format
+      // Convert tools to Vercel AI SDK v6 format with CoreTool
       const tools = request.tools
         ? Object.fromEntries(
-            request.tools.map((tool) => [
-              tool.function.name,
+            request.tools.map((t) => [
+              t.function.name,
               {
-                description: tool.function.description,
-                parameters: tool.function.parameters,
+                description: t.function.description,
+                parameters: this.convertParametersToZod(t.function.parameters),
               },
             ])
           )
@@ -93,14 +106,13 @@ export class VercelAIProvider implements LLMProvider {
       const result = await generateText({
         model: this.model,
         messages: this.convertMessages(request.messages),
-        tools,
+        tools: tools as any,
         toolChoice: request.tool_choice as any,
         temperature: request.temperature,
-        maxTokens: request.max_tokens,
       });
 
       // Convert tool calls back to our format
-      const tool_calls: ToolCall[] | undefined = result.toolCalls?.map((tc) => ({
+      const tool_calls: ToolCall[] | undefined = result.toolCalls?.map((tc: any) => ({
         id: tc.toolCallId,
         type: 'function' as const,
         function: {
@@ -116,11 +128,11 @@ export class VercelAIProvider implements LLMProvider {
         },
         tool_calls,
         finish_reason: result.finishReason === 'tool-calls' ? 'tool_calls' : 'stop',
-        usage: {
-          prompt_tokens: result.usage.promptTokens,
-          completion_tokens: result.usage.completionTokens,
-          total_tokens: result.usage.totalTokens,
-        },
+        usage: result.usage ? {
+          prompt_tokens: (result.usage as any).promptTokens || 0,
+          completion_tokens: (result.usage as any).completionTokens || 0,
+          total_tokens: result.usage.totalTokens || 0,
+        } : undefined,
       };
     } catch (error: any) {
       throw new Error(`${this.name} chat error: ${error.message}`);
@@ -157,11 +169,11 @@ export class VercelAIProvider implements LLMProvider {
     try {
       const tools = request.tools
         ? Object.fromEntries(
-            request.tools.map((tool) => [
-              tool.function.name,
+            request.tools.map((t) => [
+              t.function.name,
               {
-                description: tool.function.description,
-                parameters: tool.function.parameters,
+                description: t.function.description,
+                parameters: this.convertParametersToZod(t.function.parameters),
               },
             ])
           )
@@ -170,10 +182,9 @@ export class VercelAIProvider implements LLMProvider {
       const result = await streamText({
         model: this.model,
         messages: this.convertMessages(request.messages),
-        tools,
+        tools: tools as any,
         toolChoice: request.tool_choice as any,
         temperature: request.temperature,
-        maxTokens: request.max_tokens,
       });
 
       for await (const chunk of result.textStream) {
@@ -189,7 +200,7 @@ export class VercelAIProvider implements LLMProvider {
       const finalResult = await result.response;
       yield {
         delta: {},
-        finish_reason: finalResult.finishReason === 'tool-calls' ? 'tool_calls' : 'stop',
+        finish_reason: (finalResult as any).finishReason === 'tool-calls' ? 'tool_calls' : 'stop',
       };
     } catch (error: any) {
       throw new Error(`${this.name} streaming error: ${error.message}`);
@@ -218,6 +229,52 @@ export class VercelAIProvider implements LLMProvider {
         content: msg.content,
       };
     });
+  }
+
+  private convertParametersToZod(parameters: any): z.ZodObject<any> {
+    // Convert JSON Schema to Zod schema
+    const shape: any = {};
+
+    if (parameters.properties) {
+      for (const [key, value] of Object.entries(parameters.properties as any)) {
+        const prop = value as any;
+        let zodType: any;
+
+        switch (prop.type) {
+          case 'string':
+            zodType = prop.enum ? z.enum(prop.enum) : z.string();
+            break;
+          case 'number':
+            zodType = z.number();
+            break;
+          case 'boolean':
+            zodType = z.boolean();
+            break;
+          case 'array':
+            zodType = z.array(z.any());
+            break;
+          case 'object':
+            zodType = z.object({});
+            break;
+          default:
+            zodType = z.any();
+        }
+
+        // Add description if available
+        if (prop.description) {
+          zodType = zodType.describe(prop.description);
+        }
+
+        // Make optional if not required
+        if (!parameters.required?.includes(key)) {
+          zodType = zodType.optional();
+        }
+
+        shape[key] = zodType;
+      }
+    }
+
+    return z.object(shape);
   }
 }
 

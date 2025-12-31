@@ -8,6 +8,7 @@ import type {
   UpdateFrontmatterArgs,
   ListBacklinksArgs,
   IndexProgress,
+  Document,
 } from './shared/types';
 
 // Expose protected methods that allow the renderer process to use
@@ -17,6 +18,9 @@ contextBridge.exposeInMainWorld('electron', {
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.GET_SETTINGS),
   setSetting: (key: string, value: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SET_SETTINGS, key, value),
+
+  // Documents
+  listDocuments: () => ipcRenderer.invoke(IPC_CHANNELS.LIST_DOCUMENTS),
 
   // Tools
   readNote: (args: ReadNoteArgs) => ipcRenderer.invoke(IPC_CHANNELS.READ_NOTE, args),
@@ -29,6 +33,36 @@ contextBridge.exposeInMainWorld('electron', {
 
   // AI
   chat: (messages: Message[]) => ipcRenderer.invoke(IPC_CHANNELS.CHAT, messages),
+  streamChat: (
+    messages: Message[],
+    onChunk: (chunk: any) => void,
+    onDone: () => void,
+    onError: (error: string) => void
+  ) => {
+    const chunkListener = (_: any, chunk: any) => onChunk(chunk);
+    const doneListener = () => {
+      cleanup();
+      onDone();
+    };
+    const errorListener = (_: any, error: string) => {
+      cleanup();
+      onError(error);
+    };
+
+    const cleanup = () => {
+      ipcRenderer.removeListener(`${IPC_CHANNELS.CHAT_STREAM}:chunk`, chunkListener);
+      ipcRenderer.removeListener(`${IPC_CHANNELS.CHAT_STREAM}:done`, doneListener);
+      ipcRenderer.removeListener(`${IPC_CHANNELS.CHAT_STREAM}:error`, errorListener);
+    };
+
+    ipcRenderer.on(`${IPC_CHANNELS.CHAT_STREAM}:chunk`, chunkListener);
+    ipcRenderer.once(`${IPC_CHANNELS.CHAT_STREAM}:done`, doneListener);
+    ipcRenderer.once(`${IPC_CHANNELS.CHAT_STREAM}:error`, errorListener);
+
+    ipcRenderer.invoke(IPC_CHANNELS.CHAT_STREAM, messages);
+
+    return cleanup;
+  },
 
   // Indexer
   startIndexer: () => ipcRenderer.invoke(IPC_CHANNELS.START_INDEXER),
@@ -50,12 +84,19 @@ declare global {
     electron: {
       getSettings: () => Promise<Record<string, string>>;
       setSetting: (key: string, value: string) => Promise<{ success: boolean }>;
+      listDocuments: () => Promise<Document[]>;
       readNote: (args: ReadNoteArgs) => Promise<string>;
       searchNotes: (args: SearchNotesArgs) => Promise<any>;
       writeNote: (args: WriteNoteArgs) => Promise<string>;
       updateFrontmatter: (args: UpdateFrontmatterArgs) => Promise<string>;
       listBacklinks: (args: ListBacklinksArgs) => Promise<any>;
       chat: (messages: Message[]) => Promise<any>;
+      streamChat: (
+        messages: Message[],
+        onChunk: (chunk: any) => void,
+        onDone: () => void,
+        onError: (error: string) => void
+      ) => () => void;
       startIndexer: () => Promise<{ success: boolean }>;
       stopIndexer: () => Promise<{ success: boolean }>;
       reindexAll: () => Promise<{ success: boolean }>;

@@ -16,7 +16,7 @@ export type FileEventCallback = (event: FileEvent) => void | Promise<void>;
 export type ProgressCallback = (progress: IndexProgress) => void;
 
 export class FileWatcher {
-  private watcher: chokidar.FSWatcher | null = null;
+  private watcher: ReturnType<typeof chokidar.watch> | null = null;
   private eventQueue: Map<string, FileEvent> = new Map();
   private debounceTimer: NodeJS.Timeout | null = null;
   private onEvent: FileEventCallback | null = null;
@@ -41,7 +41,7 @@ export class FileWatcher {
     }
 
     this.onEvent = onEvent;
-    this.onProgress = onProgress;
+    this.onProgress = onProgress || null;
 
     // Create ready promise
     this.readyPromise = new Promise((resolve) => {
@@ -65,9 +65,9 @@ export class FileWatcher {
     });
 
     this.watcher
-      .on('add', (filePath) => this.enqueueEvent('add', filePath))
-      .on('change', (filePath) => this.enqueueEvent('change', filePath))
-      .on('unlink', (filePath) => this.enqueueEvent('unlink', filePath))
+      .on('add', (filePath: string) => this.enqueueEvent('add', filePath))
+      .on('change', (filePath: string) => this.enqueueEvent('change', filePath))
+      .on('unlink', (filePath: string) => this.enqueueEvent('unlink', filePath))
       .on('ready', async () => {
         console.log('[Watcher] Initial scan complete, watching for changes...');
           // Initialize knownFiles map by doing an initial scan
@@ -84,7 +84,7 @@ export class FileWatcher {
           this.readyResolve();
         }
       })
-      .on('error', (error) => {
+      .on('error', (error: unknown) => {
         console.error('[Watcher] Error:', error);
       });
   }
