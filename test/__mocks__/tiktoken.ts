@@ -1,5 +1,5 @@
 // Mock tiktoken for tests since it has issues with Vitest
-export function getEncoding(_encoding: string) {
+export function get_encoding(_encoding: string) {
   return {
     encode: (text: string) => {
       // Simple word/whitespace-based tokenization for testing
@@ -16,8 +16,11 @@ export function getEncoding(_encoding: string) {
       });
       return new Uint32Array(tokens.length > 0 ? tokens : []);
     },
-    decode: (_tokens: number[] | Uint32Array) => {
-      return 'decoded text';
+    decode: (tokens: number[] | Uint32Array) => {
+      // Return a Uint8Array (which is what the real tiktoken returns)
+      // This will be decoded by TextDecoder in the actual code
+      const text = 'decoded text';
+      return new TextEncoder().encode(text);
     },
     free: () => {},
   };

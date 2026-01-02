@@ -31,10 +31,22 @@ beforeEach(() => {
 
 // Cleanup after each test
 afterEach(() => {
-  // Remove test vault files
+  // Remove test vault files (but keep the directory to avoid race conditions)
   if (fs.existsSync(TEST_VAULT_DIR)) {
-    fs.rmSync(TEST_VAULT_DIR, { recursive: true, force: true });
-    fs.mkdirSync(TEST_VAULT_DIR, { recursive: true });
+    try {
+      const files = fs.readdirSync(TEST_VAULT_DIR);
+      for (const file of files) {
+        const filePath = path.join(TEST_VAULT_DIR, file);
+        const stat = fs.statSync(filePath);
+        if (stat.isDirectory()) {
+          fs.rmSync(filePath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(filePath);
+        }
+      }
+    } catch (error) {
+      // Ignore errors during cleanup
+    }
   }
 
   // Remove test database file if it exists

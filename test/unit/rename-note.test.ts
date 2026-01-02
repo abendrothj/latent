@@ -1,13 +1,25 @@
-import { beforeAll, test, expect } from 'vitest';
+import { beforeAll, afterAll, test, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { TEST_VAULT_DIR } from '../setup';
+import { tmpdir } from 'os';
 import { setVaultPath, executeToolCall } from '../../src/main/ai/tools';
 
+// Use a unique temp directory for this test file to avoid conflicts
+const TEST_VAULT_DIR = path.join(tmpdir(), `latent-rename-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
 beforeAll(() => {
+  // Create unique test vault for this test file
+  if (!fs.existsSync(TEST_VAULT_DIR)) {
+    fs.mkdirSync(TEST_VAULT_DIR, { recursive: true });
+  }
   setVaultPath(TEST_VAULT_DIR);
-  // Ensure test vault exists in case other tests cleaned it up
-  if (!fs.existsSync(TEST_VAULT_DIR)) fs.mkdirSync(TEST_VAULT_DIR, { recursive: true });
+});
+
+afterAll(() => {
+  // Clean up test vault after all tests in this file
+  if (fs.existsSync(TEST_VAULT_DIR)) {
+    fs.rmSync(TEST_VAULT_DIR, { recursive: true, force: true });
+  }
 });
 
 test('rename_note tool renames a file on disk', async () => {
@@ -16,8 +28,12 @@ test('rename_note tool renames a file on disk', async () => {
   const oldPath = path.join(TEST_VAULT_DIR, oldName);
   const newPath = path.join(TEST_VAULT_DIR, newName);
 
-  // Ensure directory exists, then write initial file
-  fs.mkdirSync(path.dirname(oldPath), { recursive: true });
+  // Ensure vault directory exists (defensive programming for parallel test execution)
+  if (!fs.existsSync(TEST_VAULT_DIR)) {
+    fs.mkdirSync(TEST_VAULT_DIR, { recursive: true });
+  }
+
+  // Write initial file
   fs.writeFileSync(oldPath, '# Old Title\n\nContent');
   expect(fs.existsSync(oldPath)).toBe(true);
 
